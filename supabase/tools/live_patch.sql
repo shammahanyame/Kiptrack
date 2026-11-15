@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE product_attributes ADD COLUMN IF NOT EXISTS seller_id UUID REFERENCES profiles(id) ON DELETE CASCADE;
+COMMIT;
