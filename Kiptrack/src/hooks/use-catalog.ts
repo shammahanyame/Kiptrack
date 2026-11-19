@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { loadCatalog, loadProduct, type Catalog, type Product } from '@/lib/catalog';
+import {
+  loadCatalog,
+  loadProduct,
+  loadRelatedProducts,
+  type Catalog,
+  type Product,
+} from '@/lib/catalog';
 import type { Locale } from '@/lib/format';
 
 type Status = 'loading' | 'ready' | 'error';
@@ -88,6 +94,42 @@ export type ProductState = {
   error: unknown;
   reload: () => void;
 };
+
+/**
+ * Recommendations for a product page. Failures are silent: a missing rail must
+ * never stop the product itself from rendering.
+ */
+export function useRelatedProducts(
+  categoryId: string | undefined,
+  excludeId: string | undefined,
+): Product[] {
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    if (!categoryId || !excludeId) {
+      setProducts([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    loadRelatedProducts(categoryId, excludeId, controller.signal)
+      .then((next) => {
+        if (active) setProducts(next);
+      })
+      .catch(() => {
+        if (active) setProducts([]);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [categoryId, excludeId]);
+
+  return products;
+}
 
 export function useProduct(id: string | undefined): ProductState {
   const [status, setStatus] = useState<Status>('loading');

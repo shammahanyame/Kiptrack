@@ -16,9 +16,10 @@ Multi-vendor marketplace backend on Supabase (Postgres 15 + Auth + Storage + RLS
 # or apply locally with psql:
 psql -h <host> -U postgres -d <db> -f supabase/migrations/001_initial_schema.sql
 psql -h <host> -U postgres -d <db> -f supabase/migrations/002_functions_and_triggers.sql
+psql -h <host> -U postgres -d <db> -f supabase/migrations/003_product_image_storage.sql
 ```
 
-Order matters: `001` creates tables and policies; `002` creates functions and re-attaches triggers (it drops and re-creates `refresh_seller_daily_profit` to fix a language typo in `001`'s trigger reference).
+Order matters: `001` creates tables and policies; `002` creates functions and re-attaches triggers (it drops and re-creates `refresh_seller_daily_profit` to fix a language typo in `001`'s trigger reference); `003` creates the public product-photo bucket and seller-scoped upload policies.
 
 ## Seed data
 

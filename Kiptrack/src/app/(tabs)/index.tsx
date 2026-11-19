@@ -1,14 +1,16 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { FlatList, SafeAreaView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Badge, ChipRow } from '@/components/chip';
+import { Badge } from '@/components/chip';
+import { CategoryNav } from '@/components/category-nav';
 import { Icon } from '@/components/icon';
 import { ProductImage } from '@/components/product-image';
 import { ProductCard, SaveButton } from '@/components/product-card';
 import { Wordmark } from '@/components/brand';
+import { CartButton } from '@/components/cart-button';
 import { Screen, ScreenHeader, SectionHeader } from '@/components/screen';
 import { ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
@@ -17,6 +19,7 @@ import { useCatalog } from '@/hooks/use-catalog';
 import { useTheme } from '@/hooks/use-theme';
 import { errorMessage } from '@/lib/catalog';
 import { detectLocale, formatMoney, formatStock, truncate } from '@/lib/format';
+import { useRecent } from '@/state/recent';
 import { useSaved } from '@/state/saved';
 
 const locale = detectLocale();
@@ -26,13 +29,18 @@ export default function BrowseScreen() {
   const insets = useSafeAreaInsets();
   const { status, data, error, refreshing, refresh, reload } = useCatalog(locale);
   const { isSaved, toggle } = useSaved();
+  const { ids: recentIds } = useRecent();
   const [categoryId, setCategoryId] = useState<string | null>(null);
 
   const products = useMemo(() => data?.products ?? [], [data]);
-  const categories = useMemo(
-    () => data?.categories.map((category) => ({ id: category.id, label: category.name })) ?? [],
-    [data]
-  );
+  const recentProducts = useMemo(() => {
+    const byId = new Map(products.map((product) => [product.id, product]));
+    return recentIds
+      .map((id) => byId.get(id))
+      .filter((product): product is NonNullable<typeof product> => Boolean(product))
+      .slice(0, 8);
+  }, [recentIds, products]);
+  const categories = useMemo(() => data?.categories ?? [], [data]);
 
   const filtered = useMemo(
     () =>
@@ -53,6 +61,14 @@ export default function BrowseScreen() {
         eyebrow={<Wordmark size={19} />}
         title="Browse"
         subtitle="Curated pieces from Kiptrack sellers"
+        right={<CartButton />}
+      />
+
+      <CategoryNav
+        categories={categories}
+        products={products}
+        activeCategoryId={categoryId}
+        onSelectCategory={setCategoryId}
       />
 
       <Pressable
@@ -73,17 +89,6 @@ export default function BrowseScreen() {
           Search items, categories…
         </ThemedText>
       </Pressable>
-
-      {categories.length > 0 ? (
-        <View style={styles.chipRow}>
-          <ChipRow
-            items={categories}
-            selectedId={categoryId}
-            onSelect={setCategoryId}
-            allLabel="All"
-          />
-        </View>
-      ) : null}
 
       {status === 'ready' ? (
         <>
@@ -131,6 +136,28 @@ export default function BrowseScreen() {
                   </View>
                 </View>
               </Pressable>
+            </View>
+          ) : null}
+
+          {recentProducts.length > 0 ? (
+            <View style={styles.recent}>
+              <SectionHeader title="Recently viewed" />
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recentRow}>
+                {recentProducts.map((recent) => (
+                  <View key={recent.id} style={styles.recentItem}>
+                    <ProductCard
+                      product={recent}
+                      locale={locale}
+                      saved={isSaved(recent.id)}
+                      onOpen={() => openProduct(recent.id)}
+                      onToggleSave={() => toggle(recent.id)}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
             </View>
           ) : null}
 
@@ -268,6 +295,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: Spacing.two,
+  },
+  recent: {
+    gap: Spacing.two,
+  },
+  recentRow: {
+    gap: Spacing.three,
+    paddingHorizontal: ScreenPadding,
+    paddingVertical: Spacing.one,
+  },
+  recentItem: {
+    width: 148,
   },
   sectionSpacing: {
     paddingHorizontal: ScreenPadding,

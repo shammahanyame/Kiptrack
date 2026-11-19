@@ -8,6 +8,10 @@ import { Platform } from 'react-native';
 import { SplashOverlay } from '@/components/splash-overlay';
 import { Colors } from '@/constants/theme';
 import { useResolvedScheme } from '@/hooks/use-theme';
+import { AuthProvider } from '@/state/auth';
+import { CartProvider } from '@/state/cart';
+import { NavProvider } from '@/state/nav';
+import { RecentProvider } from '@/state/recent';
 import { PreferencesProvider } from '@/state/preferences';
 import { SavedProvider } from '@/state/saved';
 
@@ -17,11 +21,19 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   return (
-    <PreferencesProvider>
-      <SavedProvider>
-        <RootNavigator />
-      </SavedProvider>
-    </PreferencesProvider>
+    <AuthProvider>
+      <PreferencesProvider>
+        <NavProvider>
+          <SavedProvider>
+            <CartProvider>
+            <RecentProvider>
+              <RootNavigator />
+            </RecentProvider>
+          </CartProvider>
+          </SavedProvider>
+        </NavProvider>
+      </PreferencesProvider>
+    </AuthProvider>
   );
 }
 
@@ -61,6 +73,75 @@ function RootNavigator() {
           contentStyle: { backgroundColor: theme.background },
         }}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="signup" options={{ headerShown: false }} />
+        <Stack.Screen name="sell" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="cart"
+          options={{
+            headerShown: true,
+            title: 'Cart',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerTintColor: theme.text,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
+        <Stack.Screen
+          name="orders"
+          options={{
+            headerShown: true,
+            title: 'Orders',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerTintColor: theme.text,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
+        <Stack.Screen
+          name="orders/[id]"
+          options={{
+            headerShown: true,
+            title: 'Order',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerTintColor: theme.text,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
+        <Stack.Screen
+          name="reviews/[id]"
+          options={{
+            headerShown: true,
+            title: 'Reviews',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerTintColor: theme.text,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
+        <Stack.Screen
+          name="seller"
+          options={{
+            headerShown: true,
+            title: 'Seller',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerTintColor: theme.text,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
+        <Stack.Screen
+          name="checkout"
+          options={{
+            headerShown: true,
+            title: 'Checkout',
+            headerStyle: { backgroundColor: theme.background },
+            headerShadowVisible: false,
+            headerTintColor: theme.text,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
         <Stack.Screen
           name="product/[id]"
           options={{

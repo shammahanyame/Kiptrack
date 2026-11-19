@@ -22,6 +22,8 @@ export type Category = {
   name: string;
   description: string | null;
   sortOrder: number;
+  /** Parent category id, or null for top-level categories. */
+  parentId: string | null;
 };
 
 export type Catalog = {
@@ -73,6 +75,7 @@ type CategoryRow = {
   id: string;
   slug: string;
   sort_order: number;
+  parent_id: string | null;
   category_translations: { locale: string; name: string; description: string | null }[] | null;
 };
 
@@ -113,6 +116,7 @@ function mapCategory(row: CategoryRow, locale: Locale): Category {
     name: match?.name ?? titleFromSlug(row.slug),
     description: match?.description ?? null,
     sortOrder: row.sort_order,
+    parentId: row.parent_id ?? null,
   };
 }
 
@@ -136,7 +140,7 @@ export async function loadCatalog(locale: Locale, signal?: AbortSignal): Promise
   }
 
   try {
-    const [productsResult, categoriesResult] = await Promise.all([
+    const [productsResult, firstCategoriesResult] = await Promise.all([
       supabase
         .from('products')
         .select(PRODUCT_COLUMNS)
@@ -146,11 +150,25 @@ export async function loadCatalog(locale: Locale, signal?: AbortSignal): Promise
         .abortSignal(signal as AbortSignal),
       supabase
         .from('categories')
-        .select('id,slug,sort_order,category_translations(locale,name,description)')
+        .select('id,slug,sort_order,parent_id,category_translations(locale,name,description)')
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
         .abortSignal(signal as AbortSignal),
     ]);
+
+    // Keep working against databases that pre-date the hierarchy migration.
+    let categoriesResult: any = firstCategoriesResult;
+    if (
+      categoriesResult.error &&
+      /parent_id/i.test(categoriesResult.error.message ?? '')
+    ) {
+      categoriesResult = await supabase
+        .from('categories')
+        .select('id,slug,sort_order,category_translations(locale,name,description)')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .abortSignal(signal as AbortSignal);
+    }
 
     if (productsResult.error) throw productsResult.error;
     if (categoriesResult.error) throw categoriesResult.error;
@@ -190,6 +208,49 @@ export async function loadProduct(id: string, signal?: AbortSignal): Promise<Pro
     if (isAbort(error)) throw error;
     throw toCatalogError(error);
   }
+}
+
+/**
+ * Items to recommend beside a product: same category, newest and featured
+ * first, never the product being viewed.
+ */
+export async function loadRelatedProducts(
+  categoryId: string,
+  excludeId: string,
+  signal?: AbortSignal,
+): Promise<Product[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase
+    .from('products')
+    .select(PRODUCT_COLUMNS)
+    .eq('status', 'active')
+    .eq('category_id', categoryId)
+    .neq('id', excludeId)
+    .order('featured', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(8)
+    .abortSignal(signal as AbortSignal);
+
+  if (error) throw error;
+  return ((data ?? []) as unknown as ProductRow[]).map(mapProduct);
+}
+
+/**
+ * Category ids for the given products, used to weight the category bar after a
+ * purchase. Failures are silent: personalisation must never block an order.
+ */
+export async function loadProductCategories(ids: string[]): Promise<string[]> {
+  if (!isSupabaseConfigured || ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('id,category_id')
+    .in('id', [...new Set(ids)]);
+
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as { id: string; category_id: string }[];
+  return [...new Set(rows.map((row) => row.category_id).filter(Boolean))];
 }
 
 export function errorMessage(error: unknown, locale: Locale): string {

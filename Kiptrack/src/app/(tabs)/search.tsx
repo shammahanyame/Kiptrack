@@ -1,20 +1,14 @@
-import { router } from 'expo-router';
-import { useMemo, useRef, useState, type ComponentRef } from 'react';
-import {
-  FlatList,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChipRow } from '@/components/chip';
+import { Chip } from '@/components/chip';
+import { CategoryNav } from '@/components/category-nav';
 import { Icon } from '@/components/icon';
 import { ProductRow } from '@/components/product-card';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
-import { ThemedText } from '@/components/themed-text';
 import { Radius, ScreenPadding, Spacing, TouchTarget } from '@/constants/theme';
 import { useCatalog } from '@/hooks/use-catalog';
 import { useTheme } from '@/hooks/use-theme';
@@ -23,6 +17,15 @@ import { detectLocale } from '@/lib/format';
 import { useSaved } from '@/state/saved';
 
 const locale = detectLocale();
+
+type SortKey = 'relevance' | 'price-asc' | 'price-desc' | 'newest';
+
+const SORTS: { id: SortKey; label: string }[] = [
+  { id: 'relevance', label: 'Relevance' },
+  { id: 'price-asc', label: 'Price: low to high' },
+  { id: 'price-desc', label: 'Price: high to low' },
+  { id: 'newest', label: 'Newest' },
+];
 
 /** Lower-cased, accent-folded text so "dante" finds "Danté". */
 function fold(text: string): string {
@@ -39,8 +42,61 @@ export default function SearchScreen() {
   const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const { status, data, error, reload } = useCatalog(locale);
   const { isSaved, toggle } = useSaved();
-  const [query, setQuery] = useState('');
-  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const params = useLocalSearchParams<{
+    category?: string;
+    q?: string;
+    sort?: string;
+    deals?: string;
+    focus?: string;
+  }>();
+
+  const [query, setQuery] = useState(typeof params.q === 'string' ? params.q : '');
+  const [categoryId, setCategoryId] = useState<string | null>(
+    typeof params.category === 'string' && params.category ? params.category : null,
+  );
+  const [sort, setSort] = useState<SortKey>(() => {
+    const candidate = params.sort;
+    if (
+      candidate === 'relevance' ||
+      candidate === 'price-asc' ||
+      candidate === 'price-desc' ||
+      candidate === 'newest'
+    ) {
+      return candidate;
+    }
+    return 'relevance';
+  });
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [freeDeliveryOnly, setFreeDeliveryOnly] = useState(params.deals === '1');
+
+  // Keep scoped navigation working when the params change while the screen
+  // is already mounted (e.g. tapping another category tab).
+  useEffect(() => {
+    if (params.q !== undefined) setQuery(params.q);
+  }, [params.q]);
+  useEffect(() => {
+    if (params.category !== undefined) setCategoryId(params.category || null);
+  }, [params.category]);
+  useEffect(() => {
+    if (params.sort !== undefined) {
+      const candidate = params.sort;
+      if (
+        candidate === 'relevance' ||
+        candidate === 'price-asc' ||
+        candidate === 'price-desc' ||
+        candidate === 'newest'
+      ) {
+        setSort(candidate);
+      }
+    }
+  }, [params.sort]);
+  useEffect(() => {
+    if (params.focus === '1') {
+      const id = setTimeout(() => inputRef.current?.focus(), 250);
+      return () => clearTimeout(id);
+    }
+    return undefined;
+  }, [params.focus]);
 
   const products = useMemo(() => data?.products ?? [], [data]);
   const categories = useMemo(
@@ -50,8 +106,11 @@ export default function SearchScreen() {
 
   const results = useMemo(() => {
     const needle = fold(query);
-    return products.filter((product) => {
+
+    const filtered = products.filter((product) => {
       if (categoryId && product.categoryId !== categoryId) return false;
+      if (inStockOnly && product.stockQty <= 0) return false;
+      if (freeDeliveryOnly && !product.isShippingFree) return false;
       if (!needle) return true;
       return (
         fold(product.title).includes(needle) ||
@@ -62,14 +121,35 @@ export default function SearchScreen() {
         )
       );
     });
-  }, [products, categories, query, categoryId]);
+
+    switch (sort) {
+      case 'price-asc':
+        return [...filtered].sort((a, b) => a.priceMinor - b.priceMinor);
+      case 'price-desc':
+        return [...filtered].sort((a, b) => b.priceMinor - a.priceMinor);
+      case 'newest':
+        return [...filtered].sort((a, b) =>
+          (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '')
+        );
+      default:
+        return filtered;
+    }
+  }, [products, categories, query, categoryId, sort, inStockOnly, freeDeliveryOnly]);
 
   const categoryName = (product: Product) =>
     categories.find((category) => category.id === product.categoryId)?.label;
 
   const openProduct = (id: string) => router.push({ pathname: '/product/[id]', params: { id } });
   const hasQuery = query.trim().length > 0;
-  const filtersActive = hasQuery || categoryId !== null;
+  const filtersActive = hasQuery || categoryId !== null || inStockOnly || freeDeliveryOnly || sort !== 'relevance';
+
+  const clearFilters = () => {
+    setQuery('');
+    setCategoryId(null);
+    setInStockOnly(false);
+    setFreeDeliveryOnly(false);
+    setSort('relevance');
+  };
 
   return (
     <Screen>
@@ -80,6 +160,18 @@ export default function SearchScreen() {
             ? `${results.length} ${results.length === 1 ? 'item' : 'items'}`
             : undefined
         }
+      />
+
+      <CategoryNav
+        categories={categories.map((category) => ({
+          id: category.id,
+          name: category.label,
+          slug: category.id,
+          parentId: null,
+        }))}
+        products={products}
+        activeCategoryId={categoryId}
+        onSelectCategory={setCategoryId}
       />
 
       <View style={styles.controls}>
@@ -120,16 +212,30 @@ export default function SearchScreen() {
           ) : null}
         </View>
 
-        {categories.length > 0 ? (
-          <View style={styles.chipRow}>
-            <ChipRow
-              items={categories}
-              selectedId={categoryId}
-              onSelect={setCategoryId}
-              allLabel="All"
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.sortRow}
+          keyboardShouldPersistTaps="handled">
+          {SORTS.map((option) => (
+            <Chip
+              key={option.id}
+              label={option.label}
+              selected={sort === option.id}
+              onPress={() => setSort(option.id)}
             />
-          </View>
-        ) : null}
+          ))}
+          <Chip
+            label="In stock"
+            selected={inStockOnly}
+            onPress={() => setInStockOnly((value) => !value)}
+          />
+          <Chip
+            label="Free delivery"
+            selected={freeDeliveryOnly}
+            onPress={() => setFreeDeliveryOnly((value) => !value)}
+          />
+        </ScrollView>
       </View>
 
       <FlatList
@@ -168,13 +274,10 @@ export default function SearchScreen() {
               message={
                 hasQuery
                   ? `Nothing matches “${query.trim()}” right now.`
-                  : 'Nothing in this category yet.'
+                  : 'Nothing matches these filters right now.'
               }
               actionLabel="Clear filters"
-              onAction={() => {
-                setQuery('');
-                setCategoryId(null);
-              }}
+              onAction={clearFilters}
             />
           ) : (
             <EmptyState
@@ -220,6 +323,10 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     marginHorizontal: -ScreenPadding,
+  },
+  sortRow: {
+    gap: Spacing.two,
+    paddingHorizontal: ScreenPadding,
   },
   list: {
     paddingHorizontal: ScreenPadding - 12,
