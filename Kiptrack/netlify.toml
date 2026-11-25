@@ -1,6 +1,7 @@
 [build]
-  command = "echo 'Netlify static deployment'"
   publish = "kiptrack-web-web"
 
-[redirects]
-  /* /index.html 200
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
