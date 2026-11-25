@@ -1,9 +1,6 @@
 [build]
-  command = "npm run build"
-  publish = "dist"
-
-[functions]
-  directory = "Kiptrack/functions"
+  command = "echo 'Netlify static deployment'"
+  publish = "kiptrack-web-web"
 
 [redirects]
   /* /index.html 200
