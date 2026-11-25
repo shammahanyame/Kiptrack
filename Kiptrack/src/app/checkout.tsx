@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton, SecondaryButton } from '@/components/button';
@@ -12,8 +12,10 @@ import { Radius, ScreenPadding, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { loadProduct, loadProductCategories } from '@/lib/catalog';
 import { loadDeliveryAddress, saveDeliveryAddress } from '@/lib/delivery';
+import { fetchAddresses, type Address } from '@/lib/addresses';
 import { detectLocale, formatMoney } from '@/lib/format';
-import { placeOrder, type OrderAddress } from '@/lib/orders';
+import { placeOrder, type OrderAddress, type PaymentMethod } from '@/lib/orders';
+import { initiateMobileMoneyPayment, paymentMethodLabel } from '@/lib/payments';
 import { useAuth } from '@/state/auth';
 import { cartLineKey, useCart, type CartLine } from '@/state/cart';
 import { useNav } from '@/state/nav';
@@ -30,7 +32,7 @@ const locale = detectLocale();
 export default function CheckoutScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { buyNow } = useLocalSearchParams<{ buyNow?: string }>();
+  const { buyNow, options } = useLocalSearchParams<{ buyNow?: string; options?: string }>();
   const { user } = useAuth();
   const { recordPurchase } = useNav();
   const {
@@ -46,10 +48,30 @@ export default function CheckoutScreen() {
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash_on_delivery');
 
   const [buyNowLine, setBuyNowLine] = useState<CartLine | null>(null);
   const [buyNowError, setBuyNowError] = useState('');
   const [buyNowAttempt, setBuyNowAttempt] = useState(0);
+
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchAddresses()
+      .then((list) => {
+        setSavedAddresses(list);
+        const def = list.find((a) => a.isDefault) ?? list[0];
+        if (def) {
+          setSelectedAddressId(def.id);
+          setName((c) => c || def.receiver);
+          setPhone((c) => c || def.phone);
+          setCity((c) => c || def.city);
+        }
+      })
+      .catch(() => {});
+  }, [user]);
 
   // Remember where the last order went, so repeat buyers only type it once.
   useEffect(() => {
@@ -84,14 +106,29 @@ export default function CheckoutScreen() {
           setBuyNowError('This item is no longer available.');
           return;
         }
+        let selectedOptions: Record<string, string> = {};
+        if (typeof options === 'string') {
+          try {
+            const parsed = JSON.parse(options);
+            if (parsed && typeof parsed === 'object') selectedOptions = parsed;
+          } catch {
+            // ignore malformed options
+          }
+        }
+        const variantSku =
+          Object.keys(selectedOptions).length > 0
+            ? `${product.id}::${Object.entries(selectedOptions)
+                .map(([k, v]) => `${k}=${v}`)
+                .join('|')}`
+            : product.id;
         setBuyNowLine({
           product: product.id,
-          sku: product.id,
+          sku: variantSku,
           title: product.title,
           priceMinor: product.priceMinor,
           image: product.images[0],
           qty: 1,
-          selectedOptions: {},
+          selectedOptions,
         });
       })
       .catch(() => {
@@ -184,7 +221,28 @@ export default function CheckoutScreen() {
           image: line.image,
         })),
         address,
+        paymentMethod,
       );
+
+      // Kick off Mobile Money collection when configured; otherwise the order
+      // stays payable on delivery / by manual confirmation.
+      if (paymentMethod === 'mtn_momo' || paymentMethod === 'orange_money') {
+        const result = await initiateMobileMoneyPayment({
+          orderId: order.id,
+          amountMinor: subtotalMinor,
+          phone: address.phone,
+          description: `Kiptrack order ${order.reference}`,
+        });
+        if (result.live && result.checkoutUrl) {
+          // Best-effort open; the buyer can still complete from order detail.
+          try {
+            const { Linking } = await import('react-native');
+            Linking.openURL(result.checkoutUrl);
+          } catch {
+            // ignore
+          }
+        }
+      }
 
       await saveDeliveryAddress(address);
 
@@ -212,6 +270,86 @@ export default function CheckoutScreen() {
           <ThemedText variant="headline" accessibilityRole="header">
             Delivery details
           </ThemedText>
+
+          {savedAddresses.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.addressRow}>
+              {savedAddresses.map((address) => {
+                const selected = address.id === selectedAddressId;
+                return (
+                  <Pressable
+                    key={address.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      setSelectedAddressId(address.id);
+                      setName(address.receiver);
+                      setPhone(address.phone);
+                      setCity(address.city);
+                    }}
+                    style={[
+                      styles.addressChip,
+                      {
+                        borderColor: selected ? theme.accentStrong : theme.border,
+                        backgroundColor: selected ? theme.surfaceRaised : theme.surface,
+                      },
+                    ]}>
+                    <ThemedText variant="callout" numberOfLines={1}>
+                      {address.label || address.type}
+                    </ThemedText>
+                    <ThemedText variant="caption" tone="textSecondary" numberOfLines={1}>
+                      {address.city}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+
+          <View style={styles.section}>
+            <ThemedText variant="headline" accessibilityRole="header">
+              Payment method
+            </ThemedText>
+            <View style={styles.paymentRow}>
+              {(
+                [
+                  { value: 'cash_on_delivery', label: 'Cash on delivery' },
+                  { value: 'mtn_momo', label: 'MTN MoMo' },
+                  { value: 'orange_money', label: 'Orange Money' },
+                ] as { value: PaymentMethod; label: string }[]
+              ).map((option) => {
+                const selected = paymentMethod === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    onPress={() => setPaymentMethod(option.value)}
+                    style={[
+                      styles.paymentChip,
+                      {
+                        borderColor: selected ? theme.accentStrong : theme.border,
+                        backgroundColor: selected ? theme.surfaceRaised : theme.surface,
+                      },
+                    ]}>
+                    <ThemedText
+                      variant="footnote"
+                      tone={selected ? 'accentText' : 'textSecondary'}>
+                      {option.label}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <ThemedText variant="footnote" tone="textTertiary">
+              {paymentMethod === 'cash_on_delivery'
+                ? 'Pay the seller when your order is delivered.'
+                : 'You will be prompted to confirm the payment on your phone.'}
+            </ThemedText>
+          </View>
+
           <FormField
             label="Full name"
             value={name}
@@ -309,6 +447,27 @@ export default function CheckoutScreen() {
 const styles = StyleSheet.create({
   content: { padding: ScreenPadding, gap: Spacing.four },
   section: { gap: Spacing.three },
+  addressRow: { gap: Spacing.two, paddingVertical: Spacing.one },
+  addressChip: {
+    minWidth: 120,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderRadius: Radius.medium,
+    padding: Spacing.two,
+    gap: Spacing.half,
+  },
+  paymentRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  paymentChip: {
+    minHeight: 40,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   summary: {
     borderWidth: StyleSheet.hairlineWidth * 2,
     borderRadius: Radius.large,

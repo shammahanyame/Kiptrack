@@ -50,6 +50,8 @@ const ICONS = {
   bolt: { ios: 'bolt.fill', android: 'bolt' },
   book: { ios: 'book', android: 'menu_book' },
   leaf: { ios: 'leaf', android: 'eco' },
+  share: { ios: 'square.and.arrow.up', android: 'share' },
+  external: { ios: 'arrow.up.right.square', android: 'open_in_new' },
 } as const;
 
 export type IconName = keyof typeof ICONS;

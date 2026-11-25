@@ -85,6 +85,12 @@ export default function AccountScreen() {
                 onPress={() => router.push('/cart')}
               />
               <SettingsRow
+                label="Saved addresses"
+                icon="pin"
+                accessibilityHint="Manage your delivery addresses"
+                onPress={() => router.push('/addresses')}
+              />
+              <SettingsRow
                 label="Seller dashboard"
                 icon="store"
                 last
@@ -144,6 +150,18 @@ export default function AccountScreen() {
             ABOUT
           </ThemedText>
           <SettingsGroup>
+            <SettingsRow
+              label="Notifications"
+              icon="info"
+              accessibilityHint="View your notifications"
+              onPress={() => router.push('/notifications')}
+            />
+            <SettingsRow
+              label="Help & support"
+              icon="info"
+              accessibilityHint="Contact support"
+              onPress={() => router.push('/support')}
+            />
             <SettingsRow label="Version" value={version} />
             <SettingsRow label="Saved items" icon="savedOutline" value={`${ids.length}`} last />
           </SettingsGroup>

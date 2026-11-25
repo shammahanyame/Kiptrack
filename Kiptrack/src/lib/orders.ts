@@ -36,6 +36,9 @@ export type OrderItemInput = {
 
 export type OrderItem = OrderItemInput & { id: string };
 
+export type PaymentMethod = 'cash_on_delivery' | 'mtn_momo' | 'orange_money' | 'card';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+
 export type Order = {
   id: string;
   reference: string;
@@ -44,6 +47,9 @@ export type Order = {
   subtotalMinor: number;
   address: OrderAddress;
   items: OrderItem[];
+  paymentMethod: PaymentMethod | null;
+  paymentStatus: PaymentStatus;
+  paymentRef: string | null;
 };
 
 /** A seller sees the part of an order that belongs to them. */
@@ -59,6 +65,9 @@ const ORDER_SELECT = [
   'delivery_phone',
   'delivery_city',
   'delivery_notes',
+  'payment_method',
+  'payment_status',
+  'payment_ref',
   'order_items(id,product_id,title,sku,price_minor,qty,image)',
 ].join(',');
 
@@ -82,6 +91,9 @@ type OrderRow = {
   delivery_phone: string;
   delivery_city: string;
   delivery_notes: string | null;
+  payment_method: string | null;
+  payment_status: string | null;
+  payment_ref: string | null;
   order_items: OrderItemRow[] | null;
 };
 
@@ -103,6 +115,9 @@ type SellerOrderRow = {
     delivery_phone: string;
     delivery_city: string;
     delivery_notes: string | null;
+    payment_method: string | null;
+    payment_status: string | null;
+    payment_ref: string | null;
   } | null;
 };
 
@@ -132,6 +147,9 @@ function mapOrder(row: OrderRow): Order {
       notes: row.delivery_notes ?? undefined,
     },
     items: (row.order_items ?? []).map(mapItem),
+    paymentMethod: (row.payment_method as PaymentMethod) ?? null,
+    paymentStatus: (row.payment_status as PaymentStatus) ?? 'pending',
+    paymentRef: row.payment_ref,
   };
 }
 
@@ -139,7 +157,11 @@ function mapOrder(row: OrderRow): Order {
  * Records an order and its lines. Stock is checked before the order is written,
  * so a buyer cannot buy more than a seller has.
  */
-export async function placeOrder(items: OrderItemInput[], address: OrderAddress): Promise<Order> {
+export async function placeOrder(
+  items: OrderItemInput[],
+  address: OrderAddress,
+  paymentMethod: PaymentMethod = 'cash_on_delivery',
+): Promise<Order> {
   if (items.length === 0) throw new Error('Your cart is empty.');
 
   const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -182,9 +204,11 @@ export async function placeOrder(items: OrderItemInput[], address: OrderAddress)
       delivery_phone: address.phone,
       delivery_city: address.city,
       delivery_notes: address.notes ?? null,
+      payment_method: paymentMethod,
+      payment_status: 'pending',
     })
     .select(
-      'id,reference,status,subtotal_minor,created_at,delivery_name,delivery_phone,delivery_city,delivery_notes',
+      'id,reference,status,subtotal_minor,created_at,delivery_name,delivery_phone,delivery_city,delivery_notes,payment_method,payment_status,payment_ref',
     )
     .single();
   if (orderError) throw orderError;
@@ -231,6 +255,9 @@ export async function placeOrder(items: OrderItemInput[], address: OrderAddress)
       notes: orderRow.delivery_notes ?? undefined,
     },
     items: ((insertedItems ?? []) as OrderItemRow[]).map(mapItem),
+    paymentMethod: (orderRow.payment_method as PaymentMethod) ?? null,
+    paymentStatus: (orderRow.payment_status as PaymentStatus) ?? 'pending',
+    paymentRef: orderRow.payment_ref ?? null,
   };
 }
 
@@ -292,6 +319,9 @@ export async function fetchSellerOrders(): Promise<SellerOrder[]> {
       },
       items: [item],
       sellerTotalMinor: item.priceMinor * item.qty,
+      paymentMethod: (order.payment_method as PaymentMethod) ?? null,
+      paymentStatus: (order.payment_status as PaymentStatus) ?? 'pending',
+      paymentRef: order.payment_ref,
     });
   }
 

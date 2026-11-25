@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiptrack - Web Version</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="/favicon.ico">
+</head>
+<body>
+  <div class="app">
+    <!-- Search Section -->
+    <div class="search-form">
+      <input type="text" id="search-input" class="search-input" placeholder="Search items, categories…" />
+      <button type="button" style="margin-top: 8px; padding: 8px 16px; background: #10B981; color: white; border: none; border-radius: 6px; font-size: 14px;">
+        Search
+      </button>
+    </div>
+
+    <!-- Filters Section -->
+    <div class="filters" id="filters">
+      <!-- Filter chips will be injected by JavaScript -->
+    </div>
+
+    <!-- Products Grid -->
+    <div class="products" id="products-grid">
+      <!-- Products will be injected by JavaScript -->
+    </div>
+
+    <!-- Empty/Error States -->
+    <div id="no-results" class="empty-state" style="display: none; text-align: center; padding: 40px 20px; color: #6B7280;">
+      <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
+      <h2>No matches found</h2>
+      <p id="no-results-message"></p>
+    </div>
+
+    <div id="error-state" class="error-state" style="text-align: center; padding: 40px 20px; color: #EF4444; display: none;">
+      <h2>Search unavailable</h2>
+      <p id="error-message"></p>
+    </div>
+  </div>
+
+  <!-- Supabase Client CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/main.js"></script>
+</body>
+</html>

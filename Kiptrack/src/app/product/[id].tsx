@@ -1,6 +1,6 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Badge } from '@/components/chip';
@@ -39,6 +39,8 @@ export default function ProductDetailScreen() {
   const { recordView } = useNav();
   const [added, setAdded] = useState(false);
   const [activeImage, setActiveImage] = useState(0);
+  const [galleryVisible, setGalleryVisible] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (product) recordRecent(product.id);
@@ -52,6 +54,7 @@ export default function ProductDetailScreen() {
   // A new product (from the recommendations rail) starts on its cover photo.
   useEffect(() => {
     setActiveImage(0);
+    setSelectedOptions({});
   }, [product?.id]);
 
   const saved = product ? isSaved(product.id) : false;
@@ -101,16 +104,23 @@ export default function ProductDetailScreen() {
   const images = product.images.filter(Boolean);
   const cover = images[activeImage] ?? images[0];
 
+  const variantSku =
+    Object.keys(selectedOptions).length > 0
+      ? `${product.id}::${Object.entries(selectedOptions)
+          .map(([k, v]) => `${k}=${v}`)
+          .join('|')}`
+      : product.id;
+
   const addToCart = () => {
     if (soldOut) return;
     add({
       product: product.id,
-      sku: product.id,
+      sku: variantSku,
       title: product.title,
       priceMinor: product.priceMinor,
       image: product.images[0],
       qty: 1,
-      selectedOptions: {},
+      selectedOptions,
     });
     setAdded(true);
     setTimeout(() => setAdded(false), 1800);
@@ -118,7 +128,21 @@ export default function ProductDetailScreen() {
 
   const buyNow = () => {
     if (soldOut) return;
-    router.push({ pathname: '/checkout', params: { buyNow: product.id } });
+    router.push({
+      pathname: '/checkout',
+      params: { buyNow: product.id, options: JSON.stringify(selectedOptions) },
+    });
+  };
+
+  const shareProduct = async () => {
+    try {
+      await Share.share({
+        title: product.title,
+        message: `${product.title} — ${formatMoney(product.priceMinor, locale)} on Kiptrack`,
+      });
+    } catch {
+      // Sharing is best-effort; ignore cancellation.
+    }
   };
 
   return (
@@ -130,12 +154,17 @@ export default function ProductDetailScreen() {
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}>
-        <ProductImage
-          uri={cover}
-          seed={product.id}
-          style={styles.hero}
-          accessibilityLabel={product.title}
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`View ${product.title} photos`}
+          onPress={() => setGalleryVisible(true)}>
+          <ProductImage
+            uri={cover}
+            seed={product.id}
+            style={styles.hero}
+            accessibilityLabel={product.title}
+          />
+        </Pressable>
 
         {images.length > 1 ? (
           <ScrollView
@@ -174,6 +203,45 @@ export default function ProductDetailScreen() {
           </View>
 
           <ThemedText variant="title">{product.title}</ThemedText>
+
+          {product.variants && product.variants.length > 0 ? (
+            <View style={styles.variants}>
+              {product.variants.map((variant) => (
+                <View key={variant.name} style={styles.variantGroup}>
+                  <ThemedText variant="footnote" tone="textSecondary">
+                    {variant.name}
+                  </ThemedText>
+                  <View style={styles.variantOptions}>
+                    {variant.options.map((option) => {
+                      const selected = selectedOptions[variant.name] === option;
+                      return (
+                        <Pressable
+                          key={option}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          onPress={() =>
+                            setSelectedOptions((current) => ({ ...current, [variant.name]: option }))
+                          }
+                          style={[
+                            styles.variantChip,
+                            {
+                              borderColor: selected ? theme.accentStrong : theme.border,
+                              backgroundColor: selected ? theme.surfaceRaised : theme.surface,
+                            },
+                          ]}>
+                          <ThemedText
+                            variant="footnote"
+                            tone={selected ? 'accentText' : 'textSecondary'}>
+                            {option}
+                          </ThemedText>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.priceRow}>
             <ThemedText variant="title" tone="text" style={styles.numeric}>
@@ -218,12 +286,18 @@ export default function ProductDetailScreen() {
               </ThemedText>
             </View>
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            <View style={styles.fact}>
-              <Icon name="verified" size={18} color={theme.textSecondary} />
-              <ThemedText variant="footnote" tone="textSecondary" style={styles.factText}>
-                Sold by a verified Kiptrack seller
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="View this seller's store"
+              onPress={() =>
+                router.push({ pathname: '/store/[id]', params: { id: product.sellerId } })
+              }
+              style={styles.fact}>
+              <Icon name="store" size={18} color={theme.textSecondary} />
+              <ThemedText variant="footnote" tone="accentText" style={styles.factText}>
+                Visit this seller’s store →
               </ThemedText>
-            </View>
+            </Pressable>
           </View>
 
           <View style={styles.section}>
@@ -270,6 +344,48 @@ export default function ProductDetailScreen() {
         </View>
       </ScrollView>
 
+      <Modal
+        visible={galleryVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGalleryVisible(false)}>
+        <View style={styles.galleryBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close photo viewer"
+            style={styles.galleryClose}
+            onPress={() => setGalleryVisible(false)}>
+            <Icon name="close" size={22} color="#fff" />
+          </Pressable>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: activeImage * 0, y: 0 }}
+            onMomentumScrollEnd={(event) => {
+              const index = Math.round(
+                event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width,
+              );
+              setActiveImage(index);
+            }}
+            style={styles.galleryScroll}>
+            {images.map((uri, index) => (
+              <View key={`${uri}-${index}`} style={styles.galleryPage}>
+                <ProductImage
+                  uri={uri}
+                  seed={`${product.id}-${index}`}
+                  style={styles.galleryImage}
+                  showMark={false}
+                />
+              </View>
+            ))}
+          </ScrollView>
+          <ThemedText variant="footnote" tone="text" style={styles.galleryCounter}>
+            {activeImage + 1} / {images.length}
+          </ThemedText>
+        </View>
+      </Modal>
+
       <View
         style={[
           styles.bottomBar,
@@ -279,6 +395,20 @@ export default function ProductDetailScreen() {
             borderTopColor: theme.border,
           },
         ]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Share ${product.title}`}
+          onPress={shareProduct}
+          style={({ pressed }) => [
+            styles.saveIcon,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}>
+          <Icon name="share" size={20} color={theme.text} />
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={saved ? `Remove ${product.title} from saved` : `Save ${product.title}`}
@@ -348,6 +478,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.two,
   },
+  variants: {
+    gap: Spacing.two,
+  },
+  variantGroup: {
+    gap: Spacing.one,
+  },
+  variantOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  variantChip: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    justifyContent: 'center',
+  },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -407,6 +556,44 @@ const styles = StyleSheet.create({
   },
   relatedItem: {
     width: 150,
+  },
+  galleryBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+  },
+  galleryClose: {
+    position: 'absolute',
+    top: 56,
+    right: ScreenPadding,
+    zIndex: 2,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  galleryScroll: {
+    flex: 1,
+  },
+  galleryPage: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: ScreenPadding,
+  },
+  galleryImage: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: Radius.large,
+  },
+  galleryCounter: {
+    position: 'absolute',
+    bottom: 40,
+    alignSelf: 'center',
+    color: '#fff',
   },
   bottomBar: {
     position: 'absolute',

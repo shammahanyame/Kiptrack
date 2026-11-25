@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -6,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Chip } from '@/components/chip';
 import { CategoryNav } from '@/components/category-nav';
 import { Icon } from '@/components/icon';
+import { ThemedText } from '@/components/themed-text';
 import { ProductRow } from '@/components/product-card';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -68,6 +70,34 @@ export default function SearchScreen() {
   });
   const [inStockOnly, setInStockOnly] = useState(false);
   const [freeDeliveryOnly, setFreeDeliveryOnly] = useState(params.deals === '1');
+
+  const RECENT_SEARCHES_KEY = 'kiptrack.recentSearches.v1';
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(RECENT_SEARCHES_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) setRecentSearches(parsed.filter((v) => typeof v === 'string'));
+      })
+      .catch(() => {});
+  }, []);
+
+  const rememberSearch = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    setRecentSearches((current) => {
+      const next = [trimmed, ...current.filter((v) => v.toLowerCase() !== trimmed.toLowerCase())].slice(0, 8);
+      AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
+
+  const clearRecentSearches = () => {
+    setRecentSearches([]);
+    AsyncStorage.removeItem(RECENT_SEARCHES_KEY).catch(() => {});
+  };
 
   // Keep scoped navigation working when the params change while the screen
   // is already mounted (e.g. tapping another category tab).
@@ -143,6 +173,28 @@ export default function SearchScreen() {
   const hasQuery = query.trim().length > 0;
   const filtersActive = hasQuery || categoryId !== null || inStockOnly || freeDeliveryOnly || sort !== 'relevance';
 
+  const suggestions = useMemo(() => {
+    const needle = fold(query);
+    if (!needle || needle.length < 2) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const product of products) {
+      if (fold(product.title).includes(needle) && !seen.has(product.title)) {
+        seen.add(product.title);
+        out.push(product.title);
+        if (out.length >= 6) break;
+      }
+    }
+    for (const category of categories) {
+      if (fold(category.label).includes(needle) && !seen.has(category.label)) {
+        seen.add(category.label);
+        out.push(category.label);
+        if (out.length >= 8) break;
+      }
+    }
+    return out;
+  }, [products, categories, query]);
+
   const clearFilters = () => {
     setQuery('');
     setCategoryId(null);
@@ -194,7 +246,10 @@ export default function SearchScreen() {
             returnKeyType="search"
             inputMode="search"
             accessibilityLabel="Search the catalogue"
-            onSubmitEditing={() => inputRef.current?.blur()}
+            onSubmitEditing={() => {
+              rememberSearch(query);
+              inputRef.current?.blur();
+            }}
             style={[styles.input, { color: theme.text }]}
           />
           {hasQuery ? (
@@ -237,6 +292,57 @@ export default function SearchScreen() {
           />
         </ScrollView>
       </View>
+
+      {status === 'ready' && !hasQuery && recentSearches.length > 0 ? (
+        <View style={styles.suggestionBlock}>
+          <View style={styles.suggestionHead}>
+            <ThemedText variant="footnote" tone="textSecondary">
+              Recent searches
+            </ThemedText>
+            <Pressable onPress={clearRecentSearches} hitSlop={8}>
+              <ThemedText variant="caption" tone="accentText">
+                Clear
+              </ThemedText>
+            </Pressable>
+          </View>
+          <View style={styles.chipWrap}>
+            {recentSearches.map((term) => (
+              <Chip
+                key={term}
+                label={term}
+                selected={false}
+                onPress={() => {
+                  setQuery(term);
+                  rememberSearch(term);
+                }}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {status === 'ready' && hasQuery && suggestions.length > 0 ? (
+        <View style={styles.suggestionBlock}>
+          <ThemedText variant="footnote" tone="textSecondary" style={styles.suggestionHead}>
+            Suggestions
+          </ThemedText>
+          {suggestions.map((term) => (
+            <Pressable
+              key={term}
+              onPress={() => {
+                setQuery(term);
+                rememberSearch(term);
+                inputRef.current?.blur();
+              }}
+              style={({ pressed }) => [styles.suggestionRow, pressed && styles.pressed]}>
+              <Icon name="search" size={16} color={theme.textTertiary} />
+              <ThemedText variant="body" numberOfLines={1} style={styles.suggestionText}>
+                {term}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       <FlatList
         data={status === 'ready' ? results : []}
@@ -335,5 +441,32 @@ const styles = StyleSheet.create({
   separator: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 68 + Spacing.three,
+  },
+  suggestionBlock: {
+    paddingHorizontal: ScreenPadding,
+    gap: Spacing.two,
+    paddingBottom: Spacing.two,
+  },
+  suggestionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.two,
+  },
+  suggestionText: {
+    flex: 1,
+  },
+  pressed: {
+    opacity: 0.6,
   },
 });

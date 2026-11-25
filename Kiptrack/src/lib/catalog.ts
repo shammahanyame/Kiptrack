@@ -1,6 +1,8 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { Locale } from '@/lib/format';
 
+export type ProductVariant = { sku?: string; name: string; options: string[] };
+
 export type Product = {
   id: string;
   title: string;
@@ -14,6 +16,7 @@ export type Product = {
   shippingMinor: number;
   sellerId: string;
   publishedAt: string | null;
+  variants: ProductVariant[];
 };
 
 export type Category = {
@@ -54,6 +57,7 @@ const PRODUCT_COLUMNS = [
   'shipping_minor',
   'seller_id',
   'published_at',
+  'variants',
 ].join(',');
 
 type ProductRow = {
@@ -69,6 +73,7 @@ type ProductRow = {
   shipping_minor: number;
   seller_id: string;
   published_at: string | null;
+  variants: unknown;
 };
 
 type CategoryRow = {
@@ -93,6 +98,9 @@ function mapProduct(row: ProductRow): Product {
     shippingMinor: row.shipping_minor,
     sellerId: row.seller_id,
     publishedAt: row.published_at,
+    variants: Array.isArray(row.variants)
+      ? (row.variants as ProductVariant[])
+      : [],
   };
 }
 
@@ -251,6 +259,29 @@ export async function loadProductCategories(ids: string[]): Promise<string[]> {
   if (error) throw error;
   const rows = (data ?? []) as unknown as { id: string; category_id: string }[];
   return [...new Set(rows.map((row) => row.category_id).filter(Boolean))];
+}
+
+/**
+ * All active products sold by a given seller, newest first. Used by the
+ * seller store page. Returns an empty list if Supabase is not configured.
+ */
+export async function loadSellerProducts(
+  sellerId: string,
+  signal?: AbortSignal,
+): Promise<Product[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase
+    .from('products')
+    .select(PRODUCT_COLUMNS)
+    .eq('status', 'active')
+    .eq('seller_id', sellerId)
+    .order('featured', { ascending: false })
+    .order('created_at', { ascending: false })
+    .abortSignal(signal as AbortSignal);
+
+  if (error) throw error;
+  return ((data ?? []) as unknown as ProductRow[]).map(mapProduct);
 }
 
 export function errorMessage(error: unknown, locale: Locale): string {

@@ -1,0 +1,14 @@
+[build]
+  command = "echo 'Netlify static deployment'"
+  publish = "."
+
+[[env]]
+  name = "NEXT_PUBLIC_SUPABASE_URL"
+  value = "https://your-supabase-project.supabase.co"
+
+[[env]]
+  name = "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  value = "your-anon-key"
+
+[redirects]
+  /* /index.html 200

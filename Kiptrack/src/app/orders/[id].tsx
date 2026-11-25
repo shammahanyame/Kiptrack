@@ -14,6 +14,7 @@ import { useBuyerOrder } from '@/hooks/use-orders';
 import { useTheme } from '@/hooks/use-theme';
 import { detectLocale, formatMoney } from '@/lib/format';
 import { cancelOrder, ORDER_STEPS, ORDER_STATUS_LABEL } from '@/lib/orders';
+import { paymentMethodLabel } from '@/lib/payments';
 import { useCart } from '@/state/cart';
 
 const locale = detectLocale();
@@ -188,6 +189,19 @@ export default function OrderDetailScreen() {
           <ThemedText variant="footnote" tone="textTertiary">
             Delivery is arranged with the seller and paid separately.
           </ThemedText>
+        </View>
+
+        <View style={[styles.card, { borderColor: theme.border }]}>
+          <ThemedText variant="headline">Payment</ThemedText>
+          <ThemedText variant="callout">{paymentMethodLabel(order.paymentMethod)}</ThemedText>
+          <ThemedText variant="footnote" tone="textSecondary">
+            Status: {order.paymentStatus}
+          </ThemedText>
+          {order.paymentRef ? (
+            <ThemedText variant="caption" tone="textTertiary">
+              Ref: {order.paymentRef}
+            </ThemedText>
+          ) : null}
         </View>
 
         <View style={[styles.card, { borderColor: theme.border }]}>

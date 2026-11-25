@@ -14,6 +14,7 @@ export type SellerListing = {
   categoryName: string;
   createdAt: string;
   publishedAt: string | null;
+  variants: { sku?: string; name: string; options: string[] }[];
 };
 
 const LISTING_COLUMNS = [
@@ -27,6 +28,7 @@ const LISTING_COLUMNS = [
   'category_id',
   'created_at',
   'published_at',
+  'variants',
   'categories(name)',
 ].join(',');
 
@@ -41,6 +43,7 @@ type ListingRow = {
   category_id: string;
   created_at: string;
   published_at: string | null;
+  variants: unknown;
   categories: { name: string } | { name: string }[] | null;
 };
 
@@ -63,6 +66,7 @@ function mapListing(row: ListingRow): SellerListing {
     categoryName: categoryName(row),
     createdAt: row.created_at,
     publishedAt: row.published_at,
+    variants: Array.isArray(row.variants) ? (row.variants as { sku?: string; name: string; options: string[] }[]) : [],
   };
 }
 

@@ -58,6 +58,7 @@ export default function SellScreen() {
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [variants, setVariants] = useState<{ name: string; options: string }[]>([]);
 
   const categories = useMemo(() => catalog?.categories ?? [], [catalog]);
   const photoCount = existingImages.length + images.length;
@@ -78,6 +79,9 @@ export default function SellScreen() {
     setVisibility(listing.status);
     setExistingImages(listing.images.filter(Boolean));
     setImages([]);
+    setVariants(
+      (listing.variants ?? []).map((v) => ({ name: v.name, options: (v.options ?? []).join(', ') })),
+    );
   }, [listing]);
 
   const pickImages = async () => {
@@ -168,6 +172,15 @@ export default function SellScreen() {
         images: imageUrls,
         status: stockAmount > 0 ? visibility : 'inactive',
         published_at: new Date().toISOString(),
+        variants: variants
+          .filter((v) => v.name.trim() && v.options.trim())
+          .map((v) => ({
+            name: v.name.trim(),
+            options: v.options
+              .split(',')
+              .map((o) => o.trim())
+              .filter(Boolean),
+          })),
       };
 
       if (editingId) {
@@ -376,6 +389,57 @@ export default function SellScreen() {
           />
 
           <View style={styles.field}>
+            <View style={styles.photoHead}>
+              <ThemedText variant="callout">Variants (optional)</ThemedText>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add variant group"
+                onPress={() => setVariants((current) => [...current, { name: '', options: '' }])}>
+                <ThemedText variant="footnote" tone="accentText">
+                  + Add
+                </ThemedText>
+              </Pressable>
+            </View>
+            {variants.map((variant, index) => (
+              <View key={index} style={styles.variantRow}>
+                <FormField
+                  label="Name"
+                  value={variant.name}
+                  onChangeText={(text) =>
+                    setVariants((current) =>
+                      current.map((v, i) => (i === index ? { ...v, name: text } : v)),
+                    )
+                  }
+                  placeholder="e.g. Size"
+                />
+                <FormField
+                  label="Options (comma separated)"
+                  value={variant.options}
+                  onChangeText={(text) =>
+                    setVariants((current) =>
+                      current.map((v, i) => (i === index ? { ...v, options: text } : v)),
+                    )
+                  }
+                  placeholder="S, M, L"
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove variant group"
+                  onPress={() =>
+                    setVariants((current) => current.filter((_, i) => i !== index))
+                  }>
+                  <ThemedText variant="footnote" tone="danger">
+                    Remove
+                  </ThemedText>
+                </Pressable>
+              </View>
+            ))}
+            <ThemedText variant="footnote" tone="textSecondary">
+              Add option groups buyers can choose from, like size or colour. Stock and price stay the same for all options.
+            </ThemedText>
+          </View>
+
+          <View style={styles.field}>
             <ThemedText variant="callout">Visibility</ThemedText>
             <View style={styles.visibility}>
               <Chip
@@ -454,6 +518,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
+  variantRow: { gap: Spacing.two },
   visibility: { flexDirection: 'row', gap: Spacing.two },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
